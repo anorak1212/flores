@@ -454,8 +454,13 @@ export default function SunScene() {
         }}
       />
 
-      {/* Flicker sutil de CRT */}
+      {/* Flicker sutil de CRT + fuente DOS */}
       <style>{`
+        @font-face {
+          font-family: 'Perfect DOS VGA 437';
+          src: url('./fonts/PerfectDOSVGA437.ttf') format('truetype');
+          font-display: swap;
+        }
         @keyframes crt-flicker {
           0%, 100% { opacity: 1; }
           88% { opacity: 0.93; }
@@ -480,9 +485,10 @@ export default function SunScene() {
             <pre
               className="text-[#66ff66] text-sm sm:text-base md:text-lg leading-loose whitespace-pre-wrap select-none"
               style={{
-                fontFamily: "'Terminal', 'Fixedsys', 'Courier New', monospace",
+                fontFamily: "'Perfect DOS VGA 437', 'Terminal', 'Courier New', monospace",
                 textShadow: '0 0 10px rgba(102, 255, 102, 0.45)',
-                letterSpacing: '0.03em',
+                letterSpacing: '0.04em',
+                fontSize: '1.25em',
               }}
             >
               {CONSOLE_LINES.map((l, i) => {

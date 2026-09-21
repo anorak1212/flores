@@ -1,10 +1,14 @@
 // ===========================================================================
-// SUNFLOWER - "UNIVERSO DE FLORES" con estética RETRO (PC de los 80s/90s)
+// FLORES - "UNIVERSO DE FLORES" con estética RETRO (PC de los 80s/90s)
 // - Flor girasol 3D procedural en el centro
-// - Fondo: puntos amarillos (estrellas retro) + algunas flores
+// - Fondo: puntos amarillos (estrellas retro) + CAMPO de flores variadas
+//   (3 diseños: amarilla, margarita, rosa) en 2 tamaños cada una
 // - Render a baja resolución + 14 fps + scanlines => se ve "antiguo" a propósito
+// - CARGA LENTA: el mensaje se escribe trabajosamente, con pausas y trabas,
+//   como una página web de hace años; luego la consola BAJA poco a poco
+// - Texto FIJO: cada línea tiene su slot reservado; escribir no mueve nada
 // - El usuario puede MOVER el universo con el ratón (OrbitControls)
-// - Consola DOS al inicio con el mensaje definitivo
+// - RESPONSIVE: móvil / tablet / PC, retrato o paisaje, pantalla completa
 // ===========================================================================
 
 import {
@@ -41,24 +45,58 @@ const CONSOLE_LINES = [
   '> TAL VEZ NO PUDE REGALARTE UN RAMO DE FLORES,',
   '> PERO LO QUE SÍ PUEDO REGALARTE',
   '> ES UN UNIVERSO ENTERO DE FLORES.',
-  '> TE QUIERO MUCHÍSIMO',
-  '',
+  '> TE QUIERO MUCHÍSIMO ODETTESITA <3',
+  '>',
   '> ........',
 ];
 
-const TYPE_SPEED_MIN = 14;
-const TYPE_SPEED_MAX = 45;
-const END_DELAY = 1600;   // pausa final antes de bajar la consola
+// Lentitud de web vieja: se escribe lento y de vez en cuando se "traba"
+const TYPE_SPEED_MIN = 42;
+const TYPE_SPEED_MAX = 135;
+const STALL_CHANCE = 0.14; // probabilidad de trabón al escribir un carácter
+const STALL_MIN = 380;     // trabón mínimo (ms)
+const STALL_MAX = 950;     // trabón máximo (ms)
+const LINE_BREAK_DELAY = 420;
+const END_DELAY = 1800;    // pausa final antes de bajar la consola
 
 // --- Parámetros de la estética "PC vieja" ---
-const RENDER_SCALE = 0.45; // el canvas se pinta al 45% y se estira => pixelado
 const TARGET_FPS = 14;     // nada fluido: ~14 cuadros por segundo
+
+// ---------------------------------------------------------------------------
+// RESPONSIVE: perfiles por dispositivo (móvil / tablet / PC) y orientación
+// ---------------------------------------------------------------------------
+const detectDevice = () => {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const portrait = h > w;
+  if (w < 768) return { kind: 'mobile', portrait };
+  if (w < 1024) return { kind: 'tablet', portrait };
+  return { kind: 'desktop', portrait };
+};
+
+const DEVICE_PRESETS = {
+  mobile:  { renderScale: 0.35, stars: 800,  bright: 140, fov: 65, camY: 9,  camZ: 40 },
+  tablet:  { renderScale: 0.40, stars: 1100, bright: 200, fov: 62, camY: 8,  camZ: 37 },
+  desktop: { renderScale: 0.45, stars: 1600, bright: 260, fov: 60, camY: 7,  camZ: 34 },
+};
+
+const getPreset = () => {
+  const d = detectDevice();
+  const base = DEVICE_PRESETS[d.kind];
+  // En retrato (móvil vertical) abrimos el ángulo y alejamos la cámara
+  return {
+    ...base,
+    kind: d.kind,
+    portrait: d.portrait,
+    camZ: base.camZ + (d.portrait ? 5 : 0),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Texturas procedurales
 // ---------------------------------------------------------------------------
 
-// Sprite de mini flor amarilla (fondo, "algunas flores")
+// Sprite de mini flor amarilla (6 pétalos)
 function makeFlowerTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
@@ -87,6 +125,78 @@ function makeFlowerTexture() {
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Margarita: 8 pétalos blancos finos + centro amarillo
+function makeDaisyTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 128, 128);
+  const cx = 64;
+  const cy = 64;
+
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI) / 4;
+    ctx.save();
+    ctx.translate(cx + Math.cos(angle) * 16, cy + Math.sin(angle) * 16);
+    ctx.rotate(angle);
+    ctx.fillStyle = '#fff6e0';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 5, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const grad = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, 13);
+  grad.addColorStop(0, '#fff7c2');
+  grad.addColorStop(0.6, '#ffd23e');
+  grad.addColorStop(1, '#e09a00');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Flor rosa: 5 pétalos redondos + centro naranja
+function makeRosaTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 128, 128);
+  const cx = 64;
+  const cy = 64;
+
+  for (let i = 0; i < 5; i++) {
+    const angle = (i * Math.PI * 2) / 5;
+    ctx.save();
+    ctx.translate(cx + Math.cos(angle) * 15, cy + Math.sin(angle) * 15);
+    ctx.rotate(angle);
+    ctx.fillStyle = '#ff9ad5';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 10, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const grad = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, 12);
+  grad.addColorStop(0, '#ffd9a0');
+  grad.addColorStop(0.6, '#ffb347');
+  grad.addColorStop(1, '#e07f00');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 9, 0, Math.PI * 2);
   ctx.fill();
 
   const tex = new CanvasTexture(canvas);
@@ -126,18 +236,20 @@ export default function SunScene() {
     const mount = mountRef.current;
     if (!mount) return;
 
+    const preset = getPreset();
+
     const scene = new Scene();
     scene.background = new Color(0x000000); // negro total, paleta DOS
 
-    const camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
-    camera.position.set(0, 7, 34);
+    const camera = new PerspectiveCamera(preset.fov, window.innerWidth / window.innerHeight, 0.1, 4000);
+    camera.position.set(0, preset.camY, preset.camZ);
     camera.lookAt(0, -1, 0);
 
     const renderer = new WebGLRenderer({ antialias: false }); // sin suavizado: retro
     renderer.setPixelRatio(1);
     renderer.setSize(
-      Math.max(320, Math.floor(window.innerWidth * RENDER_SCALE)),
-      Math.max(240, Math.floor(window.innerHeight * RENDER_SCALE))
+      Math.max(320, Math.floor(window.innerWidth * preset.renderScale)),
+      Math.max(240, Math.floor(window.innerHeight * preset.renderScale))
     );
     mount.appendChild(renderer.domElement);
 
@@ -262,8 +374,10 @@ export default function SunScene() {
     halo2.scale.set(95, 95, 1);
     flowerRoot.add(halo2);
 
-    // ======= FONDO: puntos amarillos (estrellas retro) + flores =======
-    const flowerTex = makeFlowerTexture();
+    // ============ FONDO: puntos amarillos + campo de flores variadas ============
+    const texYellow = makeFlowerTexture();
+    const texDaisy = makeDaisyTexture();
+    const texRosa = makeRosaTexture();
 
     // Dispersión esférica aleatoria
     const scatter = (count, rMin, rMax, ySpread) => {
@@ -282,44 +396,72 @@ export default function SunScene() {
     };
 
     // 1) Estrellas minúsculas: puntos amarillos fijos (tamaño en píxeles)
-    const tinyGeo = scatter(1600, 280, 1500, 1.0);
-    const tinyMat = new PointsMaterial({
-      color: 0xffe88a,
-      size: 2.2,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 0.95,
-    });
-    const tinyStars = new Points(tinyGeo, tinyMat);
-    scene.add(tinyStars);
+    const makeStars = (count, color, size, rMin, rMax, ySpread) => {
+      const geo = scatter(count, rMin, rMax, ySpread);
+      const mat = new PointsMaterial({
+        color,
+        size,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const pts = new Points(geo, mat);
+      return { pts, mat };
+    };
 
-    // 2) Puntos brillantes más grandes, parpadean como estrellas de verdad
-    const brightGeo = scatter(260, 200, 900, 0.9);
-    const brightMat = new PointsMaterial({
-      color: 0xffdd55,
-      size: 4.2,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 1,
-    });
-    const brightStars = new Points(brightGeo, brightMat);
-    scene.add(brightStars);
+    // 2) Un grupo de mini flores con su textura y tamaño
+    const makeFlowerField = (tex, size, count, rMin, rMax) => {
+      const geo = scatter(count, rMin, rMax, 0.8);
+      const mat = new PointsMaterial({
+        color: 0xfff2c0,
+        size,
+        map: tex,
+        transparent: true,
+        alphaTest: 0.2,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        sizeAttenuation: true,
+        opacity: 0.92,
+      });
+      return new Points(geo, mat);
+    };
 
-    // 3) Algunas flores repartidas (sprite de mini flor, con perspectiva)
-    const flowerGeo = scatter(70, 220, 1100, 0.8);
-    const flowerMat = new PointsMaterial({
-      color: 0xffe066,
-      size: 46,
-      map: flowerTex,
-      transparent: true,
-      alphaTest: 0.2,
-      depthWrite: false,
-      blending: AdditiveBlending,
-      sizeAttenuation: true,
-      opacity: 0.9,
-    });
-    const fieldFlowers = new Points(flowerGeo, flowerMat);
-    scene.add(fieldFlowers);
+    // 3) Arma todo el fondo: estrellas + 3 diseños de flor × 2 tamaños
+    const makeField = (p) => {
+      const group = new Group();
+
+      const tiny = makeStars(p.stars, 0xffe88a, 2.2, 280, 1500, 1.0);
+      group.add(tiny.pts);
+
+      const bright = makeStars(p.bright, 0xffdd55, 4.2, 200, 900, 0.9);
+      group.add(bright.pts);
+
+      // En pantallas chicas se dibujan menos flores
+      const mult = p.kind === 'mobile' ? 0.7 : p.kind === 'tablet' ? 0.85 : 1;
+      const defs = [
+        { tex: texYellow, size: 34, count: 42, rMin: 170, rMax: 850 },
+        { tex: texYellow, size: 62, count: 26, rMin: 240, rMax: 1050 },
+        { tex: texDaisy, size: 36, count: 38, rMin: 180, rMax: 880 },
+        { tex: texDaisy, size: 64, count: 24, rMin: 250, rMax: 1080 },
+        { tex: texRosa, size: 33, count: 40, rMin: 175, rMax: 860 },
+        { tex: texRosa, size: 60, count: 25, rMin: 245, rMax: 1060 },
+      ];
+      defs.forEach((f) => {
+        group.add(makeFlowerField(f.tex, f.size, Math.round(f.count * mult), f.rMin, f.rMax));
+      });
+
+      return { group, tinyMat: tiny.mat, brightMat: bright.mat };
+    };
+
+    const disposeField = (f) => {
+      f.group.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      });
+    };
+
+    let field = makeField(preset);
+    scene.add(field.group);
 
     // ================= BUCLE RETRO: ~14 fps + parpadeo =================
     let frameId;
@@ -335,13 +477,11 @@ export default function SunScene() {
       ringGroup.rotation.y += 0.0016;
       center.rotation.y += 0.0016;
       flowerRoot.rotation.y = Math.sin(now * 0.0002) * 0.06;
-      tinyStars.rotation.y -= 0.00008;
-      brightStars.rotation.y += 0.00012;
-      fieldFlowers.rotation.y -= 0.00006;
+      field.group.rotation.y -= 0.00006;
 
       // Parpadeo retro de las estrellas
-      tinyMat.opacity = 0.72 + Math.random() * 0.28;
-      brightMat.opacity = 0.62 + Math.random() * 0.38;
+      field.tinyMat.opacity = 0.72 + Math.random() * 0.28;
+      field.brightMat.opacity = 0.62 + Math.random() * 0.38;
 
       controls.update();
       renderer.render(scene, camera);
@@ -351,14 +491,29 @@ export default function SunScene() {
     // El canvas se estira a pantalla completa con aspecto pixelado (CRT)
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
+    renderer.domElement.style.objectFit = 'contain';
     renderer.domElement.style.imageRendering = 'pixelated';
 
+    // Recalcula todo al cambiar tamaño u orientación del dispositivo
     const onResize = () => {
+      const next = getPreset();
+
+      // Cambió el tipo de dispositivo (móvil <-> tablet <-> PC): se reconstruye el fondo
+      if (next.kind !== preset.kind) {
+        scene.remove(field.group);
+        disposeField(field);
+        field = makeField(next);
+        scene.add(field.group);
+      }
+
+      const effective = next.kind !== preset.kind ? next : next;
       camera.aspect = window.innerWidth / window.innerHeight;
+      camera.fov = effective.fov;
+      camera.position.z = effective.camZ;
       camera.updateProjectionMatrix();
       renderer.setSize(
-        Math.max(320, Math.floor(window.innerWidth * RENDER_SCALE)),
-        Math.max(240, Math.floor(window.innerHeight * RENDER_SCALE))
+        Math.max(320, Math.floor(window.innerWidth * effective.renderScale)),
+        Math.max(240, Math.floor(window.innerHeight * effective.renderScale))
       );
     };
     window.addEventListener('resize', onResize);
@@ -376,13 +531,16 @@ export default function SunScene() {
             else obj.material.dispose();
           }
         });
-        if (flowerTex) flowerTex.dispose();
+        disposeField(field);
+        texYellow.dispose();
+        texDaisy.dispose();
+        texRosa.dispose();
         renderer.dispose();
       } catch (e) { /* limpieza segura */ }
     };
   }, []);
 
-  // --- Efecto máquina de escribir de la consola ---
+  // --- Efecto máquina de escribir: LENTO, con trabas (web de los 90s) ---
   useEffect(() => {
     if (lineIndex >= CONSOLE_LINES.length) {
       const t = setTimeout(() => setBajando(true), END_DELAY);
@@ -390,10 +548,17 @@ export default function SunScene() {
     }
     const line = CONSOLE_LINES[lineIndex];
     if (charIndex < line.length) {
+      // A veces el "módem" se traba un momento y luego sigue
+      let delay;
+      if (Math.random() < STALL_CHANCE) {
+        delay = STALL_MIN + Math.random() * (STALL_MAX - STALL_MIN);
+      } else {
+        delay = TYPE_SPEED_MIN + Math.random() * (TYPE_SPEED_MAX - TYPE_SPEED_MIN);
+      }
       const t = setTimeout(() => {
         setCharIndex(charIndex + 1);
         setCurrentLine(line.slice(0, charIndex + 1));
-      }, TYPE_SPEED_MIN + Math.random() * (TYPE_SPEED_MAX - TYPE_SPEED_MIN));
+      }, delay);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => {
@@ -401,7 +566,7 @@ export default function SunScene() {
       setCurrentLine('');
       setCharIndex(0);
       setLineIndex(lineIndex + 1);
-    }, 300);
+    }, LINE_BREAK_DELAY);
     return () => clearTimeout(t);
   }, [lineIndex, charIndex]);
 
@@ -422,10 +587,10 @@ export default function SunScene() {
         setOculto(true); // listo: se quita del todo y libera el puntero
         return;
       }
-      setTimeout(step, 110 + Math.random() * 310); // pausas irregulares
+      setTimeout(step, 130 + Math.random() * 330); // pausas irregulares
     };
 
-    const t = setTimeout(step, 500); // "le cuesta arrancar"
+    const t = setTimeout(step, 600); // "le cuesta arrancar"
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -433,7 +598,7 @@ export default function SunScene() {
   }, [bajando, oculto]);
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden">
+    <div className="fixed inset-0 z-0 bg-black overflow-hidden">
       {/* Universo (canvas pixelado + scanlines + viñeta) */}
       <div ref={mountRef} className="absolute inset-0 z-0" />
 
@@ -454,13 +619,8 @@ export default function SunScene() {
         }}
       />
 
-      {/* Flicker sutil de CRT + fuente DOS */}
+      {/* Flicker sutil de CRT */}
       <style>{`
-        @font-face {
-          font-family: 'Perfect DOS VGA 437';
-          src: url('./fonts/PerfectDOSVGA437.ttf') format('truetype');
-          font-display: swap;
-        }
         @keyframes crt-flicker {
           0%, 100% { opacity: 1; }
           88% { opacity: 0.93; }
@@ -468,43 +628,48 @@ export default function SunScene() {
           97% { opacity: 0.9; }
         }
         .crt-flicker { animation: crt-flicker 0.22s steps(1) infinite; }
+        @keyframes crt-cursor {
+          0%, 49% { opacity: 1; }
+          50%, 100% { opacity: 0; }
+        }
+        .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
       `}</style>
       <div className="absolute inset-0 z-10 pointer-events-none crt-flicker" />
 
-      {/* Consola: estilo BIOS vieja. BAJA trabada en pasos al terminar */}
+      {/*
+        Consola estilo BIOS vieja. Cada línea OCUPA SU SLOT desde el primer
+        cuadro: aunque la línea activa aún no tenga texto o haga wrap, el
+        bloque nunca cambia de altura y el texto NO se mueve.
+      */}
       <div
         className={`absolute inset-0 z-50 bg-black ${oculto ? 'hidden' : ''}`}
         style={{ transform: `translateY(${slidePct}%)` }}
       >
         <div className="flex items-center justify-center w-full h-full">
-          <div className="w-[min(92vw,720px)] mx-auto px-2">
-            {/*
-              Todas las filas se reservan desde el primer cuadro (vacías) para
-              que el bloque no crezca y el texto quede SIEMPRE centrado, fijo.
-            */}
-            <pre
-              className="text-[#66ff66] text-sm sm:text-base md:text-lg leading-loose whitespace-pre-wrap select-none"
-              style={{
-                fontFamily: "'Perfect DOS VGA 437', 'Terminal', 'Courier New', monospace",
-                textShadow: '0 0 10px rgba(102, 255, 102, 0.45)',
-                letterSpacing: '0.04em',
-                fontSize: '1.25em',
-              }}
-            >
-              {CONSOLE_LINES.map((l, i) => {
-                const content =
-                  i < typedLines.length ? typedLines[i] : i === typedLines.length ? currentLine : '';
-                return (
-                  <span key={i}>
-                    {content}
-                    {i === typedLines.length && (
-                      <span className="animate-pulse">▌</span>
-                    )}
-                    {'\n'}
-                  </span>
-                );
-              })}
-            </pre>
+          <div style={{ width: 'min(92vw, 800px)' }}>
+            {CONSOLE_LINES.map((l, i) => {
+              const done = i < typedLines.length;
+              const active = i === lineIndex;
+              const content = done ? typedLines[i] : active ? currentLine : '';
+              return (
+                <div
+                  key={i}
+                  className="select-none"
+                  style={{
+                    fontFamily: "'Courier New', Courier, Consolas, monospace",
+                    fontSize: 'min(3vw, 24px)',
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre',
+                    color: '#66ff66',
+                    textShadow: '0 0 10px rgba(102, 255, 102, 0.45)',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {content}
+                  {active && <span className="crt-cursor">▌</span>}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

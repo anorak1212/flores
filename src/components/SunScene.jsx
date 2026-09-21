@@ -812,12 +812,17 @@ export default function SunScene() {
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
 
         /* ===== TAMAÑO DE LA CONSOLA: MAPEADO POR DISPOSITIVO (CSS puro) =====
-           - Móvil vertical: letra proporcionada y cada línea con su slot
-             amplio (si una línea se enrolla, el bloque no se mueve).
-           - Móvil HORIZONTAL: hay ancho de sobra, las líneas van en un
-             solo renglón y la consola se ve cómoda, NADA apretada.
-           - Tablet: letra media. - PC: consola ancha y letra grande.  */
-        .console-box { width: 92vw; margin: 0 auto; }
+           Detección por ALTO para landscape móvil: en horizontal el
+           recurso escaso es la altura, y el ancho reportado del iPhone
+           (812-932px) hace que caiga en tablet si se mira el ancho → se
+           veía "horrible". Aquí la regla landscape-corta va al final y
+           gana por cascada en cualquier pantalla baja.                */
+        .console-box {
+          width: 92vw;
+          margin: 0 auto;
+          max-height: 88vh;   /* red de seguridad, no debería activarse */
+          overflow: visible;
+        }
         .console-line {
           font-family: 'Courier New', Courier, Consolas, monospace;
           line-height: 1.5;
@@ -825,20 +830,40 @@ export default function SunScene() {
           color: #66ff66;
           text-shadow: 0 0 10px rgba(102, 255, 102, 0.45);
           letter-spacing: 0.02em;
+          /* Fallback genérico por si algún viewport no matchea nada */
+          font-size: clamp(14px, 3vw, 28px);
+          min-height: 1.6em;
         }
+        /* TIER 1: Móvil vertical (funciona bien, se queda igual) */
         @media (max-width: 767px) and (orientation: portrait) {
-          .console-line { font-size: clamp(13px, 3.6vw, 16px); min-height: 3em; }
+          .console-line {
+            font-size: clamp(13px, 3.6vw, 16px);
+            min-height: 3em;
+          }
         }
-        /* Móvil horizontal: líneas de un solo renglón, sin huecos enormes */
-        @media (max-width: 767px) and (orientation: landscape) {
-          .console-line { font-size: clamp(16px, 2.8vw, 24px); min-height: 1.8em; }
-        }
+        /* TIER 2: Tablet (portrait o landscape alto) */
         @media (min-width: 768px) and (max-width: 1023px) {
-          .console-line { font-size: clamp(18px, 2.4vw, 24px); }
+          .console-line {
+            font-size: clamp(18px, 2.4vw, 24px);
+          }
         }
+        /* TIER 3: PC */
         @media (min-width: 1024px) {
           .console-box { width: min(94vw, 1400px); }
-          .console-line { font-size: clamp(26px, 2.1vw, 38px); }
+          .console-line {
+            font-size: clamp(26px, 2.1vw, 38px);
+          }
+        }
+        /* TIER 4: EL FIX. Landscape "corto" (móviles en horizontal),
+           detectado por ALTO (<=500px) y NO por ancho: cubre también
+           iPhone X/14/15 que antes caían en tablet. La fuente escala
+           con vh para que el bloque ocupe siempre la misma proporción
+           (~78-80% del alto) sea cual sea el teléfono. */
+        @media (orientation: landscape) and (max-height: 500px) {
+          .console-line {
+            font-size: clamp(14px, 4.6vh, 22px);
+            min-height: 1.55em;
+          }
         }
       `}</style>
       <div className="absolute inset-0 z-10 pointer-events-none crt-flicker" />

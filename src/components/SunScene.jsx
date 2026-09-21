@@ -443,6 +443,30 @@ function makeGlowTexture(colorHex) {
   return new CanvasTexture(canvas);
 }
 
+// Tamaño interno del canvas 3D, SIEMPRE con la misma proporción que la
+// pantalla real (ancho/alto de window). Antes se usaba Math.max(320,...) y
+// Math.max(240,...) por separado en ancho y alto: en landscape angosto
+// (ej. celular 812x375) eso forzaba un buffer 320x240 (proporción 4:3)
+// mientras la cámara usaba la proporción real (~2.17:1), y el resultado
+// era una imagen 3D estirada/recortada dentro del canvas. Esta función
+// sube de escala PROPORCIONALMENTE cuando hace falta, nunca de forma
+// independiente por eje, así la proporción del buffer siempre coincide
+// con camera.aspect y nada de la escena queda deformado ni cortado.
+const MIN_RENDER_DIM = 240; // resolución mínima interna en el lado más chico
+const computeRenderSize = (scale) => {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  let rw = w * scale;
+  let rh = h * scale;
+  const smaller = Math.min(rw, rh);
+  if (smaller < MIN_RENDER_DIM) {
+    const upscale = MIN_RENDER_DIM / smaller;
+    rw *= upscale;
+    rh *= upscale;
+  }
+  return { w: Math.max(1, Math.floor(rw)), h: Math.max(1, Math.floor(rh)) };
+};
+
 export default function SunScene() {
   const mountRef = useRef(null);
 
@@ -473,10 +497,10 @@ export default function SunScene() {
 
     const renderer = new WebGLRenderer({ antialias: false }); // sin suavizado: retro
     renderer.setPixelRatio(1);
-    renderer.setSize(
-      Math.max(320, Math.floor(window.innerWidth * preset.renderScale)),
-      Math.max(240, Math.floor(window.innerHeight * preset.renderScale))
-    );
+    {
+      const size = computeRenderSize(preset.renderScale);
+      renderer.setSize(size.w, size.h);
+    }
     mount.appendChild(renderer.domElement);
 
     // Controles: el usuario MUEVE el universo con el ratón
@@ -745,10 +769,8 @@ export default function SunScene() {
       camera.fov = next.fov;
       camera.position.z = next.camZ;
       camera.updateProjectionMatrix();
-      renderer.setSize(
-        Math.max(320, Math.floor(window.innerWidth * next.renderScale)),
-        Math.max(240, Math.floor(window.innerHeight * next.renderScale))
-      );
+      const size = computeRenderSize(next.renderScale);
+      renderer.setSize(size.w, size.h);
     };
     window.addEventListener('resize', onResize);
 
@@ -870,10 +892,12 @@ export default function SunScene() {
         }
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
 
-        /* CSS enviado por la otra IA: FÓRMULA UNIVERSAL min(4.6vw, 4.6vh, 38px).
-           El navegador usa el valor más chico entre ancho y alto: el
-           texto jamás desborda ningún eje, en ninguna pantalla, sin
-           breakpoints por dispositivo. Solo portrait móvil excepción. */
+        /* ===== CONSOLA: FÓRMULA UNIVERSAL (ancho Y alto a la vez) =====
+           font-size: min(4.6vw, 4.6vh, 38px) → el navegador usa siempre
+           el valor más chico entre lo que permite el ancho y lo que
+           permite el alto: el texto jamás desborda ningún eje, en
+           ninguna pantalla, sin breakpoints por dispositivo.
+           Solo portrait móvil necesita excepción (ancho muy angosto). */
         .console-box {
           width: 92vw;
           max-width: 1400px;
@@ -902,7 +926,7 @@ export default function SunScene() {
             min-height: 3em;
           }
         }
-        /* Refuerzo global para garantizar que nada se sale de pantalla en ningún eje */
+        /* Refuerzo global: nada se sale de pantalla en ningún eje */
         html, body, #root {
           overflow: hidden;
           max-width: 100vw;

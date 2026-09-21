@@ -7,8 +7,11 @@
 // - CARGA LENTA: el mensaje se escribe trabajosamente, con pausas y trabas,
 //   como una página web de hace años; luego la consola BAJA poco a poco
 // - Texto FIJO: cada línea tiene su slot reservado; escribir no mueve nada
-// - El usuario puede MOVER el universo con el ratón (OrbitControls)
 // - RESPONSIVE: móvil / tablet / PC, retrato o paisaje, pantalla completa
+// - TAMAÑO EXACTO: la letra se calcula para que la línea más larga quepa
+//   siempre y crezca lo máximo posible en cada dispositivo
+// - MÚSICA ambiental sintetizada (Web Audio, sin derechos) + botón para
+//   callarla; volumen muy bajo, apenas se nota
 // ===========================================================================
 
 import {
@@ -64,33 +67,148 @@ const TARGET_FPS = 14;     // nada fluido: ~14 cuadros por segundo
 
 // ---------------------------------------------------------------------------
 // RESPONSIVE: perfiles por dispositivo (móvil / tablet / PC) y orientación
+//   maxFont es el tope de tamaño de letra de la consola en cada dispositivo
 // ---------------------------------------------------------------------------
-const detectDevice = () => {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const portrait = h > w;
-  if (w < 768) return { kind: 'mobile', portrait };
-  if (w < 1024) return { kind: 'tablet', portrait };
-  return { kind: 'desktop', portrait };
+const detectDevice = (w = window.innerWidth) => {
+  if (w < 768) return { kind: 'mobile' };
+  if (w < 1024) return { kind: 'tablet' };
+  return { kind: 'desktop' };
 };
 
 const DEVICE_PRESETS = {
-  mobile:  { renderScale: 0.35, stars: 800,  bright: 140, fov: 65, camY: 9,  camZ: 40 },
-  tablet:  { renderScale: 0.40, stars: 1100, bright: 200, fov: 62, camY: 8,  camZ: 37 },
-  desktop: { renderScale: 0.45, stars: 1600, bright: 260, fov: 60, camY: 7,  camZ: 34 },
+  mobile:  { renderScale: 0.35, stars: 800,  bright: 140, fov: 65, camY: 9,  camZ: 40, maxFont: 15 },
+  tablet:  { renderScale: 0.40, stars: 1100, bright: 200, fov: 62, camY: 8,  camZ: 37, maxFont: 26 },
+  desktop: { renderScale: 0.45, stars: 1600, bright: 260, fov: 60, camY: 7,  camZ: 34, maxFont: 34 },
 };
 
 const getPreset = () => {
   const d = detectDevice();
   const base = DEVICE_PRESETS[d.kind];
+  const portrait = window.innerHeight > window.innerWidth;
   // En retrato (móvil vertical) abrimos el ángulo y alejamos la cámara
-  return {
-    ...base,
-    kind: d.kind,
-    portrait: d.portrait,
-    camZ: base.camZ + (d.portrait ? 5 : 0),
-  };
+  return { ...base, kind: d.kind, portrait, camZ: base.camZ + (portrait ? 5 : 0) };
 };
+
+// Ancho (en em) de la línea más larga del mensaje, letra por letra de Courier
+const LINE_EM = 29.8;
+
+// ---------------------------------------------------------------------------
+// MÚSICA ambiental sintetizada: 4 acordes suaves en loop (sin archivos)
+// ---------------------------------------------------------------------------
+function buildAmbientBuffer(ctx, seconds = 22) {
+  const sr = ctx.sampleRate;
+  const buffer = ctx.createBuffer(1, Math.floor(sr * seconds), sr);
+  const data = buffer.getChannelData(0);
+
+  // Pads: Cmaj7 -> Am7 -> Fmaj7 -> G (vueltas suaves, estilo space)
+  const chords = [
+    [261.63, 329.63, 392.0, 493.88],  // Cmaj7
+    [220.0, 261.63, 329.63, 392.0],   // Am7
+    [174.61, 261.63, 329.63, 440.0],  // Fmaj7
+    [196.0, 246.94, 392.0, 493.88],   // G
+  ];
+  const chordLen = seconds / chords.length;
+
+  for (let c = 0; c < chords.length; c++) {
+    const t0 = c * chordLen;
+    for (let n = 0; n < chords[c].length; n++) {
+      const f = chords[c][n];
+      const amp = 0.04 / chords[c].length;
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        const local = t - t0;
+        if (local < 0 || local > chordLen) continue;
+        let env = 1;
+        if (local < 1.4) env = local / 1.4;          // ataque lento
+        const rem = chordLen - local;
+        if (rem < 2) env = Math.min(env, rem / 2);   // fuga suave (crossfade)
+        data[i] +=
+          amp *
+          env *
+          (Math.sin(2 * Math.PI * f * local) +
+            0.35 * Math.sin(4 * Math.PI * f * local) +
+            0.18 * Math.sin(6 * Math.PI * f * local));
+      }
+    }
+  }
+  return buffer;
+}
+
+function useAmbientMusic() {
+  const [on, setOn] = useState(false);
+  const audioRef = useRef(null);
+  const startRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const buffer = buildAmbientBuffer(ctx, 22);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 900;   // apagado, tipo monitor barato
+      filter.Q.value = 0.3;
+
+      const master = ctx.createGain();
+      master.gain.value = 0;          // arranca en silencio total
+
+      source.connect(filter);
+      filter.connect(master);
+      master.connect(ctx.destination);
+
+      const audio = { ctx, source, master, started: false };
+      audioRef.current = audio;
+
+      const start = () => {
+        if (audio.started) return;
+        audio.source.start();
+        audio.started = true;
+        audio.master.gain.setTargetAtTime(0.07, ctx.currentTime, 1.2); // sube FLOTANDO
+        setOn(true);
+      };
+      startRef.current = start;
+
+      // Intento de arranque automático (el navegador puede bloquearlo)
+      const t = setTimeout(() => {
+        if (ctx.state === 'suspended') {
+          ctx.resume().then(() => {
+            if (ctx.state === 'running') startRef.current();
+          }).catch(() => {});
+        } else {
+          startRef.current();
+        }
+      }, 400);
+
+      return () => {
+        clearTimeout(t);
+        try { ctx.close(); } catch (e) { /* ya cerrado */ }
+      };
+    } catch (e) {
+      return undefined; // sin audio: el botón simplemente no hace nada
+    }
+  }, []);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    // Despierta el contexto si el navegador lo tenía dormido (esto sí se permite)
+    if (a.ctx.state === 'suspended') a.ctx.resume().catch(() => {});
+    if (on) {
+      a.master.gain.setTargetAtTime(0, a.ctx.currentTime, 0.8);
+      setOn(false);
+    } else {
+      if (!a.started) { a.source.start(); a.started = true; }
+      a.master.gain.setTargetAtTime(0.07, a.ctx.currentTime, 0.8);
+      setOn(true);
+    }
+  };
+
+  return { on, toggle };
+}
 
 // ---------------------------------------------------------------------------
 // Texturas procedurales
@@ -230,6 +348,22 @@ export default function SunScene() {
   const [bajando, setBajando] = useState(false);
   const [slidePct, setSlidePct] = useState(0);
   const [oculto, setOculto] = useState(false);
+
+  // Ancho del viewport para calcular el tamaño de letra EXACTO (sin wrap)
+  const [viewW, setViewW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1024));
+  useEffect(() => {
+    const onWinResize = () => setViewW(window.innerWidth);
+    window.addEventListener('resize', onWinResize);
+    return () => window.removeEventListener('resize', onWinResize);
+  }, []);
+
+  const { on: musicaOn, toggle: toggleMusica } = useAmbientMusic();
+
+  // --- Tamaño de la consola: la línea más larga cabe SIEMPRE y la letra
+  //     crece hasta el tope del dispositivo. Nada se envuelve ni se mueve. ---
+  const uiPreset = DEVICE_PRESETS[detectDevice(viewW).kind];
+  const contW = Math.min(viewW * 0.92, 1100);
+  const fontSize = Math.min(contW / LINE_EM, uiPreset.maxFont);
 
   // --- Escena Three.js ---
   useEffect(() => {
@@ -506,14 +640,13 @@ export default function SunScene() {
         scene.add(field.group);
       }
 
-      const effective = next.kind !== preset.kind ? next : next;
       camera.aspect = window.innerWidth / window.innerHeight;
-      camera.fov = effective.fov;
-      camera.position.z = effective.camZ;
+      camera.fov = next.fov;
+      camera.position.z = next.camZ;
       camera.updateProjectionMatrix();
       renderer.setSize(
-        Math.max(320, Math.floor(window.innerWidth * effective.renderScale)),
-        Math.max(240, Math.floor(window.innerHeight * effective.renderScale))
+        Math.max(320, Math.floor(window.innerWidth * next.renderScale)),
+        Math.max(240, Math.floor(window.innerHeight * next.renderScale))
       );
     };
     window.addEventListener('resize', onResize);
@@ -638,15 +771,16 @@ export default function SunScene() {
 
       {/*
         Consola estilo BIOS vieja. Cada línea OCUPA SU SLOT desde el primer
-        cuadro: aunque la línea activa aún no tenga texto o haga wrap, el
-        bloque nunca cambia de altura y el texto NO se mueve.
+        cuadro: el bloque nunca cambia de altura y el texto NO se mueve.
+        La letra se calcula (contW / LINE_EM) para que la línea más larga
+        quepa SIEMPRE y crezca hasta el tope según el dispositivo.
       */}
       <div
         className={`absolute inset-0 z-50 bg-black ${oculto ? 'hidden' : ''}`}
         style={{ transform: `translateY(${slidePct}%)` }}
       >
         <div className="flex items-center justify-center w-full h-full">
-          <div style={{ width: 'min(92vw, 800px)' }}>
+          <div style={{ width: `${contW}px` }}>
             {CONSOLE_LINES.map((l, i) => {
               const done = i < typedLines.length;
               const active = i === lineIndex;
@@ -657,7 +791,7 @@ export default function SunScene() {
                   className="select-none"
                   style={{
                     fontFamily: "'Courier New', Courier, Consolas, monospace",
-                    fontSize: 'min(3vw, 24px)',
+                    fontSize: `${fontSize}px`,
                     lineHeight: 1.5,
                     whiteSpace: 'pre',
                     color: '#66ff66',
@@ -673,6 +807,26 @@ export default function SunScene() {
           </div>
         </div>
       </div>
+
+      {/* Botón de música: discreto, estilo terminal. Silencia o enciende. */}
+      <button
+        type="button"
+        onClick={toggleMusica}
+        className="absolute z-[60] bottom-3 right-3 select-none"
+        style={{
+          background: 'rgba(0, 0, 0, 0.75)',
+          border: `1px solid ${musicaOn ? '#33ff66' : '#2a5533'}`,
+          color: musicaOn ? '#66ff66' : '#467a52',
+          fontFamily: "'Courier New', Courier, Consolas, monospace",
+          fontSize: '12px',
+          letterSpacing: '0.08em',
+          padding: '6px 10px',
+          cursor: 'pointer',
+          textShadow: musicaOn ? '0 0 8px rgba(102, 255, 102, 0.4)' : 'none',
+        }}
+      >
+        {musicaOn ? '♪ MÚSICA: ON' : '♪ MÚSICA: OFF'}
+      </button>
     </div>
   );
 }

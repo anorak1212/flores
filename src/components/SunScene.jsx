@@ -201,7 +201,7 @@ function useAmbientMusic() {
         src.connect(splitter); // mono de bocina única
         src.start();
         audio.started = true;
-        audio.master.gain.setTargetAtTime(0.42, ctx.currentTime, 0.9); // la mitad: suave, de fondo
+        audio.master.gain.setTargetAtTime(0.315, ctx.currentTime, 0.9); // -25% más: apenas de fondo
         // El botón NO se marca ON aquí: la música arranca sola y el botón
         // inicia en OFF (como pidió el señor). Solo él decide apagarla.
       };
@@ -262,7 +262,7 @@ function useAmbientMusic() {
       setOn(false);
     } else {
       if (!a.started) startRef.current();
-      else a.master.gain.setTargetAtTime(0.42, a.ctx.currentTime, 0.8);
+      else a.master.gain.setTargetAtTime(0.315, a.ctx.currentTime, 0.8);
       setOn(true);
     }
   };
@@ -308,6 +308,52 @@ function makeFlowerTexture() {
   const tex = new CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
+}
+
+// Fábrica reutilizable: pétalos (cantidad, grosor, largo, color) + centro
+function makePetalFlowerTexture(petalCount, petalW, petalH, fill, c0, c1, c2) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 128, 128);
+  const cx = 64;
+  const cy = 64;
+
+  for (let i = 0; i < petalCount; i++) {
+    const angle = (i * Math.PI * 2) / petalCount;
+    ctx.save();
+    ctx.translate(cx + Math.cos(angle) * 16, cy + Math.sin(angle) * 16);
+    ctx.rotate(angle);
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, petalW, petalH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const grad = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, 13);
+  grad.addColorStop(0, c0);
+  grad.addColorStop(0.6, c1);
+  grad.addColorStop(1, c2);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// NARANJA: 5 pétalos gruesos, centro ámbar (alguna que otra, como pidió)
+function makeNaranjaTexture() {
+  return makePetalFlowerTexture(5, 8, 24, '#ff9a3d', '#fff0b8', '#ffb347', '#c96a00');
+}
+
+// MINI GIRASOL: 10 pétalos finos amarillo intenso, centro café
+function makeSunTexture() {
+  return makePetalFlowerTexture(10, 4.5, 18, '#ffd23e', '#fff8c4', '#d98f00', '#8a5200');
 }
 
 // Margarita: 8 pétalos blancos finos + centro amarillo
@@ -558,6 +604,8 @@ export default function SunScene() {
     const texYellow = makeFlowerTexture();
     const texDaisy = makeDaisyTexture();
     const texRosa = makeRosaTexture();
+    const texSun = makeSunTexture();
+    const texNaranja = makeNaranjaTexture();
 
     // Dispersión esférica aleatoria
     const scatter = (count, rMin, rMax, ySpread) => {
@@ -618,13 +666,18 @@ export default function SunScene() {
 
       // En pantallas chicas se dibujan menos flores
       const mult = p.kind === 'mobile' ? 0.7 : p.kind === 'tablet' ? 0.85 : 1;
+      // 5 diseños × 2 tamaños: amarillas en abundancia + algunas naranjas
       const defs = [
-        { tex: texYellow, size: 34, count: 42, rMin: 170, rMax: 850 },
-        { tex: texYellow, size: 62, count: 26, rMin: 240, rMax: 1050 },
-        { tex: texDaisy, size: 36, count: 38, rMin: 180, rMax: 880 },
-        { tex: texDaisy, size: 64, count: 24, rMin: 250, rMax: 1080 },
-        { tex: texRosa, size: 33, count: 40, rMin: 175, rMax: 860 },
-        { tex: texRosa, size: 60, count: 25, rMin: 245, rMax: 1060 },
+        { tex: texYellow, size: 34, count: 60, rMin: 170, rMax: 850 },
+        { tex: texYellow, size: 62, count: 38, rMin: 240, rMax: 1050 },
+        { tex: texDaisy, size: 36, count: 50, rMin: 180, rMax: 880 },
+        { tex: texDaisy, size: 64, count: 34, rMin: 250, rMax: 1080 },
+        { tex: texRosa, size: 33, count: 56, rMin: 175, rMax: 860 },
+        { tex: texRosa, size: 60, count: 34, rMin: 245, rMax: 1060 },
+        { tex: texSun, size: 30, count: 44, rMin: 165, rMax: 840 },
+        { tex: texSun, size: 54, count: 30, rMin: 235, rMax: 1040 },
+        { tex: texNaranja, size: 32, count: 34, rMin: 175, rMax: 860 },
+        { tex: texNaranja, size: 58, count: 22, rMin: 245, rMax: 1060 },
       ];
       defs.forEach((f) => {
         group.add(makeFlowerField(f.tex, f.size, Math.round(f.count * mult), f.rMin, f.rMax));
@@ -657,8 +710,9 @@ export default function SunScene() {
       ringGroup.rotation.y += 0.0016;
       center.rotation.y += 0.0016;
       flowerRoot.rotation.y = Math.sin(now * 0.0002) * 0.06;
-      // Estrellas y flores del fondo: MUY MUY lentas (una vuelta en ~6 horas)
-      field.group.rotation.y -= 0.00002;
+      // Estrellas y flores del fondo: movimiento suave y perceptible
+      // (una vuelta en ~90 min: claramente vivo, jamás mareante)
+      field.group.rotation.y -= 0.00012;
 
       // Parpadeo retro de las estrellas: sutil, sin nerviosismo
       field.tinyMat.opacity = 0.8 + Math.random() * 0.2;
@@ -816,17 +870,23 @@ export default function SunScene() {
         }
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
 
-        /* ===== TAMAÑO DE LA CONSOLA: MAPEADO POR DISPOSITIVO (CSS puro) =====
-           Detección por ALTO para landscape móvil: en horizontal el
-           recurso escaso es la altura, y el ancho reportado del iPhone
-           (812-932px) hace que caiga en tablet si se mira el ancho → se
-           veía "horrible". Aquí la regla landscape-corta va al final y
-           gana por cascada en cualquier pantalla baja.                */
+        /* ===== CONSOLA: FÓRMULA UNIVERSAL (ancho Y alto a la vez) =====
+           font-size: min(4.6vw, 4.6vh, 38px) → el navegador usa siempre
+           el valor más chico entre lo que permite el ancho y lo que
+           permite el alto: el texto jamás desborda ningún eje, en
+           ninguna pantalla, sin breakpoints por dispositivo.
+           Solo portrait móvil necesita excepción (ancho muy angosto). */
         .console-box {
           width: 92vw;
+          max-width: 1400px;
           margin: 0 auto;
-          max-height: 88vh;   /* red de seguridad, no debería activarse */
+          max-height: 90vh;
           overflow: visible;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 0;
+          box-sizing: border-box;
         }
         .console-line {
           font-family: 'Courier New', Courier, Consolas, monospace;
@@ -835,40 +895,20 @@ export default function SunScene() {
           color: #66ff66;
           text-shadow: 0 0 10px rgba(102, 255, 102, 0.45);
           letter-spacing: 0.02em;
-          /* Fallback genérico por si algún viewport no matchea nada */
-          font-size: clamp(14px, 3vw, 28px);
-          min-height: 1.6em;
+          font-size: min(4.6vw, 4.6vh, 38px);
+          min-height: 1.55em;
         }
-        /* TIER 1: Móvil vertical (funciona bien, se queda igual) */
-        @media (max-width: 767px) and (orientation: portrait) {
+        @media (orientation: portrait) and (max-width: 767px) {
           .console-line {
-            font-size: clamp(13px, 3.6vw, 16px);
+            font-size: min(7.5vw, 4.2vh, 22px);
             min-height: 3em;
           }
         }
-        /* TIER 2: Tablet (portrait o landscape alto) */
-        @media (min-width: 768px) and (max-width: 1023px) {
-          .console-line {
-            font-size: clamp(18px, 2.4vw, 24px);
-          }
-        }
-        /* TIER 3: PC */
-        @media (min-width: 1024px) {
-          .console-box { width: min(94vw, 1400px); }
-          .console-line {
-            font-size: clamp(26px, 2.1vw, 38px);
-          }
-        }
-        /* TIER 4: EL FIX. Landscape "corto" (móviles en horizontal),
-           detectado por ALTO (<=500px) y NO por ancho: cubre también
-           iPhone X/14/15 que antes caían en tablet. La fuente escala
-           con vh para que el bloque ocupe siempre la misma proporción
-           (~78-80% del alto) sea cual sea el teléfono. */
-        @media (orientation: landscape) and (max-height: 500px) {
-          .console-line {
-            font-size: clamp(14px, 4.6vh, 22px);
-            min-height: 1.55em;
-          }
+        /* Refuerzo global: nada se sale de pantalla en ningún eje */
+        html, body, #root {
+          overflow: hidden;
+          max-width: 100vw;
+          max-height: 100vh;
         }
       `}</style>
       <div className="absolute inset-0 z-10 pointer-events-none crt-flicker" />

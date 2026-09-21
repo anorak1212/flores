@@ -11,8 +11,10 @@
 // - TAMAÑO MAPEADO POR DISPOSITIVO: el tamaño de letra se resuelve en CSS
 //   puro por rango de pantalla (clamp + media queries); la consola y su
 //   contenedor se acomodan solos en cualquier pantalla, sin JS de cálculo
-// - MÚSICA ambiental sintetizada (Web Audio, sin derechos) + botón para
-//   callarla; volumen muy bajo, apenas se nota
+// - MÚSICA: la canción del señor (viento.mp3) procesada con la cadena
+//   "PC vieja": filtros que recortan agudos HD y graves, saturación suave
+//   de bocina y compresor. Suena como altavoz de escritorio de los 90s,
+//   pero clara. Botón para callarla; si el mp3 no carga, respaldo ambient.
 // ===========================================================================
 
 import {
@@ -133,56 +135,118 @@ function buildAmbientBuffer(ctx, seconds = 22) {
   return buffer;
 }
 
+// Curva de saturación "bocina vieja": dobla suavemente la onda para darle
+// ese carácter cálido de altavoz pequeño de PC, sin romper el sonido
+function makeDriveCurve() {
+  const n = 512;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1; // -1 .. 1
+    curve[i] = Math.tanh(x * 2.2); // saturación gradual, tipo válvula de plástico
+  }
+  return curve;
+}
+
+// ---------------------------------------------------------------------------
+// MÚSICA con sonido de "PC vieja": la canción del señor pasa por una cadena
+// de filtros (lowpass recorta el HD, highpass quita graves de bocina chica,
+// waveshaper da carácter, compresor empareja el volumen). Si el archivo no
+// carga, cae al pad sintetizado de respaldo: nunca queda en silencio.
+// ---------------------------------------------------------------------------
 function useAmbientMusic() {
   const [on, setOn] = useState(false);
   const audioRef = useRef(null);
   const startRef = useRef(null);
 
   useEffect(() => {
+    let cancelled = false;
+    let t;
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
-      const buffer = buildAmbientBuffer(ctx, 22);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
 
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 900;   // apagado, tipo monitor barato
-      filter.Q.value = 0.3;
+      // --- Cadena "PC vieja" (bocina de escritorio, nada de HD) ---
+      const pre = ctx.createGain();
+      pre.gain.value = 0.9;
+
+      const drive = ctx.createWaveShaper();
+      drive.curve = makeDriveCurve();
+
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 3800; // corta los agudos "HD"
+      lowpass.Q.value = 0.35;
+
+      const highpass = ctx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = 90; // una bocina chica no reproduce graves
+
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -22;
+      comp.knee.value = 18;
+      comp.ratio.value = 3.5;
+      comp.attack.value = 0.01;
+      comp.release.value = 0.28;
 
       const master = ctx.createGain();
-      master.gain.value = 0;          // arranca en silencio total
+      master.gain.value = 0; // arranca en silencio, sube flotando
 
-      source.connect(filter);
-      filter.connect(master);
+      pre.connect(drive);
+      drive.connect(lowpass);
+      lowpass.connect(highpass);
+      highpass.connect(comp);
+      comp.connect(master);
       master.connect(ctx.destination);
 
-      const audio = { ctx, source, master, started: false };
+      const audio = { ctx, master, buffer: null, started: false };
       audioRef.current = audio;
 
       const start = () => {
-        if (audio.started) return;
-        audio.source.start();
+        if (audio.started || !audio.buffer || cancelled) return;
+        const src = ctx.createBufferSource();
+        src.buffer = audio.buffer;
+        src.loop = true;
+        src.connect(pre);
+        src.start();
         audio.started = true;
-        audio.master.gain.setTargetAtTime(0.07, ctx.currentTime, 1.2); // sube FLOTANDO
+        audio.master.gain.setTargetAtTime(0.45, ctx.currentTime, 1.4); // sube flotando
         setOn(true);
       };
       startRef.current = start;
 
-      // Intento de arranque automático (el navegador puede bloquearlo)
-      const t = setTimeout(() => {
-        if (ctx.state === 'suspended') {
-          ctx.resume().then(() => {
-            if (ctx.state === 'running') startRef.current();
-          }).catch(() => {});
-        } else {
-          startRef.current();
-        }
-      }, 400);
+      const tryAutoplay = () => {
+        t = setTimeout(() => {
+          if (cancelled) return;
+          if (ctx.state === 'suspended') {
+            ctx.resume().then(() => {
+              if (ctx.state === 'running') startRef.current();
+            }).catch(() => {});
+          } else if (ctx.state === 'running') {
+            startRef.current();
+          }
+        }, 400);
+      };
+
+      // Carga la canción del señor; si falla, respaldo: pad sintetizado
+      fetch('/viento.mp3')
+        .then((r) => {
+          if (!r.ok) throw new Error('no mp3');
+          return r.arrayBuffer();
+        })
+        .then((buf) => ctx.decodeAudioData(buf))
+        .then((buffer) => {
+          if (cancelled) return;
+          audio.buffer = buffer;
+          tryAutoplay();
+        })
+        .catch(() => {
+          if (cancelled) return;
+          audio.buffer = buildAmbientBuffer(ctx, 22); // respaldo nunca silencio
+          tryAutoplay();
+        });
 
       return () => {
+        cancelled = true;
         clearTimeout(t);
         try { ctx.close(); } catch (e) { /* ya cerrado */ }
       };
@@ -193,15 +257,15 @@ function useAmbientMusic() {
 
   const toggle = () => {
     const a = audioRef.current;
-    if (!a) return;
+    if (!a || !a.buffer) return;
     // Despierta el contexto si el navegador lo tenía dormido (esto sí se permite)
     if (a.ctx.state === 'suspended') a.ctx.resume().catch(() => {});
     if (on) {
       a.master.gain.setTargetAtTime(0, a.ctx.currentTime, 0.8);
       setOn(false);
     } else {
-      if (!a.started) { a.source.start(); a.started = true; }
-      a.master.gain.setTargetAtTime(0.07, a.ctx.currentTime, 0.8);
+      if (!a.started) { startRef.current(); }
+      else a.master.gain.setTargetAtTime(0.45, a.ctx.currentTime, 0.8);
       setOn(true);
     }
   };

@@ -217,9 +217,12 @@ function useAmbientMusic() {
         }, 400);
       };
 
-      // Carga la canción del señor (viento.mp3). Sin respaldos: si el
-      // archivo no carga, hay silencio y el botón no hace nada.
-      fetch('/viento.mp3')
+      // Carga la canción del señor (viento.mp3). Se usa ruta RELATIVA:
+      // un fetch absoluto (/viento.mp3) busca en la raíz del dominio y
+      // da 404 cuando el sitio vive bajo una subcarpeta (GitHub Pages
+      // /flores/); relativo resuelve junto a la página. Si el archivo
+      // no carga, hay silencio y el botón no hace nada.
+      fetch('viento.mp3')
         .then((r) => {
           if (!r.ok) throw new Error('no mp3');
           return r.arrayBuffer();
@@ -807,12 +810,11 @@ export default function SunScene() {
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
 
         /* ===== TAMAÑO DE LA CONSOLA: MAPEADO POR DISPOSITIVO (CSS puro) =====
-           El señor pidió "mapear el tamaño del dispositivo y de acuerdo a
-           eso acomodarlo" + corregir el alto real en móvil (--vh).
-           - Móvil (<768): letra pequeña-media; cada línea reserva 3em para
-             tolerar un enredo si entra, sin mover el bloque (texto fijo).
-           - Tablet (768-1023): letra media, sin enredo.
-           - PC (>=1024): consola más ancha y letra GRANDE (hasta 38px).  */
+           - Móvil vertical: letra proporcionada y cada línea con su slot
+             amplio (si una línea se enrolla, el bloque no se mueve).
+           - Móvil HORIZONTAL: hay ancho de sobra, las líneas van en un
+             solo renglón y la consola se ve cómoda, NADA apretada.
+           - Tablet: letra media. - PC: consola ancha y letra grande.  */
         .console-box { width: 92vw; margin: 0 auto; }
         .console-line {
           font-family: 'Courier New', Courier, Consolas, monospace;
@@ -822,8 +824,12 @@ export default function SunScene() {
           text-shadow: 0 0 10px rgba(102, 255, 102, 0.45);
           letter-spacing: 0.02em;
         }
-        @media (max-width: 767px) {
-          .console-line { font-size: clamp(13px, 3.2vw, 15px); min-height: 3em; }
+        @media (max-width: 767px) and (orientation: portrait) {
+          .console-line { font-size: clamp(13px, 3.6vw, 16px); min-height: 3em; }
+        }
+        /* Móvil horizontal: líneas de un solo renglón, sin huecos enormes */
+        @media (max-width: 767px) and (orientation: landscape) {
+          .console-line { font-size: clamp(16px, 2.8vw, 24px); min-height: 1.8em; }
         }
         @media (min-width: 768px) and (max-width: 1023px) {
           .console-line { font-size: clamp(18px, 2.4vw, 24px); }

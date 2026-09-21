@@ -691,11 +691,12 @@ export default function SunScene() {
       ringGroup.rotation.y += 0.0016;
       center.rotation.y += 0.0016;
       flowerRoot.rotation.y = Math.sin(now * 0.0002) * 0.06;
-      field.group.rotation.y -= 0.00006;
+      // Estrellas y flores del fondo: MUY MUY lentas (una vuelta en ~6 horas)
+      field.group.rotation.y -= 0.00002;
 
-      // Parpadeo retro de las estrellas
-      field.tinyMat.opacity = 0.72 + Math.random() * 0.28;
-      field.brightMat.opacity = 0.62 + Math.random() * 0.38;
+      // Parpadeo retro de las estrellas: sutil, sin nerviosismo
+      field.tinyMat.opacity = 0.8 + Math.random() * 0.2;
+      field.brightMat.opacity = 0.72 + Math.random() * 0.28;
 
       controls.update();
       renderer.render(scene, camera);

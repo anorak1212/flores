@@ -2,23 +2,27 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />
     <title>flores | universo de flores</title>
     <script>
-      // Calcula el alto real visible (--vh) y corrige el bug de las barras
-      // de navegación en celulares (100vh muerde el diseño en móviles).
+      // Alto REAL de la pantalla (--vh): corrige el bug de las barras de
+      // navegación en móviles. Script definitivo del señor, adaptado.
       (function () {
-        function setVh() {
-          var vh =
-            (window.innerHeight ||
-              document.documentElement.clientHeight ||
-              document.body.clientHeight) * 0.01;
-          document.documentElement.style.setProperty('--vh', vh + 'px');
+        'use strict';
+        function ajustarDimensiones() {
+          var altoReal = window.innerHeight || document.documentElement.clientHeight;
+          document.documentElement.style.setProperty('--vh', altoReal * 0.01 + 'px');
         }
-        window.addEventListener('resize', setVh);
-        window.addEventListener('orientationchange', setVh);
-        setVh();
-        window.addEventListener('load', function () { setTimeout(setVh, 100); });
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', ajustarDimensiones);
+        } else {
+          ajustarDimensiones();
+        }
+        window.addEventListener('resize', ajustarDimensiones, { passive: true });
+        window.addEventListener('orientationchange', ajustarDimensiones, { passive: true });
+        window.addEventListener('load', function () {
+          setTimeout(ajustarDimensiones, 150);
+        });
       })();
     </script>
   </head>

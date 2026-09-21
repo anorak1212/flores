@@ -12,15 +12,18 @@
 html,
 body {
   width: 100%;
-  height: 100%;
   background: #000;
+  color: #66ff66;
+  /* Alto infalible: primero el respaldo 100vh, luego el real calculado
+     por el script --vh. En navegadores que lo soportan, gana el segundo. */
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
   overflow: hidden;
   margin: 0;
 }
 #root {
   width: 100%;
-  /* Alto real calculado por el script --vh; si el JS falta un instante,
-     cae al respaldo 1vh (equivale a 100vh). */
+  height: 100vh;
   height: calc(var(--vh, 1vh) * 100);
   background: #000;
   overflow: hidden;

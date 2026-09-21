@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universo de Partículas Interactivo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-style: border-box;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: sans-serif;
+        }
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            z-index: 10;
+            pointer-events: none;
+        }
+        h1 {
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            text-shadow: 0 0 8px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui-overlay">
+        <h1>Simulación de Universo</h1>
+        <p>Mueve el mouse para alterar la gravedad o haz clic.</p>
+    </div>
+
+    <canvas id="universe"></canvas>
+
+    <script>
+        const canvas = document.getElementById('universe');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        const numParticles = 120; // Ajustado para optimizar rendimiento en PCs estándar
+        const particles = [];
+        
+        // CONFIGURACIÓN DE SPRITES (Para el paso de flores reales)
+        const useSprites = false; // Cambia a TRUE cuando tengas tus imágenes listas
+        const spriteUrls = [
+            'flor1.png',
+            'flor2.png',
+            'flor3.png'
+        ];
+        const loadedImages = [];
+
+        if (useSprites) {
+            spriteUrls.forEach(url => {
+                const img = new Image();
+                img.src = url;
+                loadedImages.push(img);
+            });
+        }
+
+        // Estructura de cada partícula del universo
+        class Particle {
+            constructor() {
+                this.reset();
+                // Distribución inicial aleatoria en pantalla
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+            }
+
+            reset() {
+                this.x = width / 2;
+                this.y = height / 2;
+                this.radius = Math.random() * 2.5 + 0.5;
+                
+                // Vector de dirección desde el centro hacia afuera
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 3 + 1;
+                
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                // Variación de tamaño/profundidad
+                this.alpha = 0;
+                this.spriteIndex = Math.floor(Math.random() * spriteUrls.length);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Aceleración gradual simulando perspectiva
+                this.vx *= 1.02;
+                this.vy *= 1.02;
+
+                // Incremento de opacidad al alejarse del centro
+                if (this.alpha < 1) this.alpha += 0.04;
+
+                // Si sale de los bordes de la pantalla, se reinicia al centro
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+
+                if (useSprites && loadedImages[this.spriteIndex] && loadedImages[this.spriteIndex].complete) {
+                    // Renderizado usando tus imágenes de flores reales
+                    const size = this.radius * 12; // Escala el tamaño del sprite
+                    ctx.drawImage(loadedImages[this.spriteIndex], this.x - size/2, this.y - size/2, size, size);
+                } else {
+                    // Renderizado por defecto (Puntos brillantes del espacio)
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#8bc34a'; // Tono verde/girasol espacial de base
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        // Inicialización del arreglo
+        for (let i = 0; i < numParticles; i++) {
+            particles.push(new Particle());
+        }
+
+        // Bucle de animación principal
+        function animate() {
+            // Fondo semi-transparente para generar rastro de movimiento estelar
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        // Control de redimensionamiento de ventana
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>

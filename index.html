@@ -4,8 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>flores | universo de flores</title>
-    <script type="module" crossorigin src="./assets/index-B8mGImRO.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BXOBHllT.css">
+    <script>
+      // Calcula el alto real visible (--vh) y corrige el bug de las barras
+      // de navegación en celulares (100vh muerde el diseño en móviles).
+      (function () {
+        function setVh() {
+          var vh =
+            (window.innerHeight ||
+              document.documentElement.clientHeight ||
+              document.body.clientHeight) * 0.01;
+          document.documentElement.style.setProperty('--vh', vh + 'px');
+        }
+        window.addEventListener('resize', setVh);
+        window.addEventListener('orientationchange', setVh);
+        setVh();
+        window.addEventListener('load', function () { setTimeout(setVh, 100); });
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-D1AaQkPY.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-B7tDe65p.css">
   </head>
   <body>
     <div id="root"></div>

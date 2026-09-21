@@ -202,7 +202,8 @@ function useAmbientMusic() {
         src.start();
         audio.started = true;
         audio.master.gain.setTargetAtTime(0.42, ctx.currentTime, 0.9); // la mitad: suave, de fondo
-        setOn(true);
+        // El botón NO se marca ON aquí: la música arranca sola y el botón
+        // inicia en OFF (como pidió el señor). Solo él decide apagarla.
       };
       startRef.current = start;
 
@@ -252,11 +253,15 @@ function useAmbientMusic() {
     if (!a || !a.buffer) return;
     // Despierta el contexto si el navegador lo tenía dormido (esto sí se permite)
     if (a.ctx.state === 'suspended') a.ctx.resume().catch(() => {});
-    if (on) {
+    // El interruptor mira el estado REAL del audio, no el label del botón:
+    // al cargar la página la música ya suena pero el botón dice OFF; un
+    // toque la apaga, otro la enciende. El label siempre termina sincronizado.
+    const suena = a.started && a.master.gain.value > 0.05;
+    if (suena) {
       a.master.gain.setTargetAtTime(0, a.ctx.currentTime, 0.8);
       setOn(false);
     } else {
-      if (!a.started) { startRef.current(); }
+      if (!a.started) startRef.current();
       else a.master.gain.setTargetAtTime(0.42, a.ctx.currentTime, 0.8);
       setOn(true);
     }

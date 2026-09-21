@@ -11,10 +11,11 @@
 // - TAMAÑO MAPEADO POR DISPOSITIVO: el tamaño de letra se resuelve en CSS
 //   puro por rango de pantalla (clamp + media queries); la consola y su
 //   contenedor se acomodan solos en cualquier pantalla, sin JS de cálculo
-// - MÚSICA: la canción del señor (viento.mp3) procesada con la cadena
-//   "PC vieja": filtros que recortan agudos HD y graves, saturación suave
-//   de bocina y compresor. Suena como altavoz de escritorio de los 90s,
-//   pero clara. Botón para callarla; si el mp3 no carga, respaldo ambient.
+// - MÚSICA: la canción del señor (viento.mp3) con sonido de GRABADORA DE
+//   LOS 80s: agudos de cinta (sin HD), poco graves, saturación suave,
+//   compresor ligero, "shhh" de cinta de fondo y temblor de velocidad.
+//   Se escucha clara, con carácter vintage. Botón para callarla; si el
+//   mp3 no carga, respaldo ambient.
 // ===========================================================================
 
 import {
@@ -135,14 +136,14 @@ function buildAmbientBuffer(ctx, seconds = 22) {
   return buffer;
 }
 
-// Curva de saturación "bocina vieja": dobla suavemente la onda para darle
-// ese carácter cálido de altavoz pequeño de PC, sin romper el sonido
-function makeDriveCurve() {
+// Curva de saturación "cinta de casete": calidez analógica MUY suave para
+// no romper la voz ni los instrumentos (nada de chiptune ni de garabato)
+function makeDriveCurve(amount = 1.6) {
   const n = 512;
   const curve = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i * 2) / n - 1; // -1 .. 1
-    curve[i] = Math.tanh(x * 2.2); // saturación gradual, tipo válvula de plástico
+    curve[i] = Math.tanh(x * amount);
   }
   return curve;
 }
@@ -165,28 +166,31 @@ function useAmbientMusic() {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
 
-      // --- Cadena "PC vieja" (bocina de escritorio, nada de HD) ---
+      // --- Cadena "grabadora vieja de los 80s" ---
+      // La canción se escucha CLARA pero con carácter de cinta de casete:
+      // agudos redondeados (no HD), pocos graves, un "shhh" de fondo y un
+      // temblor milimétrico de velocidad. Nada de sonido ahogado.
       const pre = ctx.createGain();
       pre.gain.value = 0.9;
 
       const drive = ctx.createWaveShaper();
-      drive.curve = makeDriveCurve();
+      drive.curve = makeDriveCurve(1.6); // saturación suave, calidez analógica
 
       const lowpass = ctx.createBiquadFilter();
       lowpass.type = 'lowpass';
-      lowpass.frequency.value = 3800; // corta los agudos "HD"
-      lowpass.Q.value = 0.35;
+      lowpass.frequency.value = 6800; // agudos de cinta: nada de HD cristalino
+      lowpass.Q.value = 0.3;
 
       const highpass = ctx.createBiquadFilter();
       highpass.type = 'highpass';
-      highpass.frequency.value = 90; // una bocina chica no reproduce graves
+      highpass.frequency.value = 85; // un casete no baja de ahí
 
       const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -22;
-      comp.knee.value = 18;
-      comp.ratio.value = 3.5;
-      comp.attack.value = 0.01;
-      comp.release.value = 0.28;
+      comp.threshold.value = -18;
+      comp.knee.value = 16;
+      comp.ratio.value = 2.5; // compresión ligera: no aplasta la canción
+      comp.attack.value = 0.008;
+      comp.release.value = 0.25;
 
       const master = ctx.createGain();
       master.gain.value = 0; // arranca en silencio, sube flotando
@@ -198,7 +202,32 @@ function useAmbientMusic() {
       comp.connect(master);
       master.connect(ctx.destination);
 
-      const audio = { ctx, master, buffer: null, started: false };
+      // "Shhh" de cinta: ruido de grabadora muy bajito (el sello de los 80s)
+      const hissBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const hData = hissBuf.getChannelData(0);
+      for (let i = 0; i < hData.length; i++) hData[i] = Math.random() * 2 - 1;
+      const hissSrc = ctx.createBufferSource();
+      hissSrc.buffer = hissBuf;
+      hissSrc.loop = true;
+      const hissFilter = ctx.createBiquadFilter();
+      hissFilter.type = 'lowpass';
+      hissFilter.frequency.value = 6000;
+      const hissGain = ctx.createGain();
+      hissGain.gain.value = 0.016;
+      hissSrc.connect(hissFilter);
+      hissFilter.connect(hissGain);
+      hissGain.connect(master);
+      hissSrc.start();
+
+      // "Wow" de casete: la velocidad tiembla una pizca, como cinta real
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.6;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 0.002; // ±0.2% de velocidad: imperceptible pero real
+      lfo.connect(lfoGain);
+      lfo.start();
+
+      const audio = { ctx, master, buffer: null, started: false, lfoGain };
       audioRef.current = audio;
 
       const start = () => {
@@ -207,9 +236,11 @@ function useAmbientMusic() {
         src.buffer = audio.buffer;
         src.loop = true;
         src.connect(pre);
+        // El temblor de cinta se engancha a la velocidad de reproducción
+        audio.lfoGain.connect(src.playbackRate);
         src.start();
         audio.started = true;
-        audio.master.gain.setTargetAtTime(0.45, ctx.currentTime, 1.4); // sube flotando
+        audio.master.gain.setTargetAtTime(0.8, ctx.currentTime, 1.4); // clara, de fondo
         setOn(true);
       };
       startRef.current = start;
@@ -265,7 +296,7 @@ function useAmbientMusic() {
       setOn(false);
     } else {
       if (!a.started) { startRef.current(); }
-      else a.master.gain.setTargetAtTime(0.45, a.ctx.currentTime, 0.8);
+      else a.master.gain.setTargetAtTime(0.8, a.ctx.currentTime, 0.8);
       setOn(true);
     }
   };

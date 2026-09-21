@@ -870,12 +870,13 @@ export default function SunScene() {
         }
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
 
-        /* ===== CONSOLA: FÓRMULA UNIVERSAL (ancho Y alto a la vez) =====
-           font-size: min(4.6vw, 4.6vh, 38px) → el navegador usa siempre
-           el valor más chico entre lo que permite el ancho y lo que
-           permite el alto: el texto jamás desborda ningún eje, en
-           ninguna pantalla, sin breakpoints por dispositivo.
-           Solo portrait móvil necesita excepción (ancho muy angosto). */
+        /* ===== CONSOLA: EL TEXTO LLENA LA PANTALLA (simple, sin vueltas) =====
+           - white-space: pre-wrap + word-break → el texto NUNCA se sale
+             por los lados, en ninguna pantalla.
+           - La letra crece con el ALTO (vh) y el ANCHO (vw), topes 38px.
+           - Cada línea reserva su slot (min-height) → no se mueve al
+             escribirse. Portrait móvil: letra grande y slot para 2
+             renglones (la línea larga se enrolla en 2, no en 3+).      */
         .console-box {
           width: 92vw;
           max-width: 1400px;
@@ -891,17 +892,26 @@ export default function SunScene() {
         .console-line {
           font-family: 'Courier New', Courier, Consolas, monospace;
           line-height: 1.5;
-          white-space: pre;
+          white-space: pre-wrap;
+          word-break: break-word;
           color: #66ff66;
           text-shadow: 0 0 10px rgba(102, 255, 102, 0.45);
           letter-spacing: 0.02em;
-          font-size: min(4.6vw, 4.6vh, 38px);
-          min-height: 1.55em;
+          font-size: min(2.95vw, 7vh, 38px);
+          min-height: 1.6em;
         }
+        /* Móvil vertical: letra BIEN grande (hasta 22px), slot para 2 renglones */
         @media (orientation: portrait) and (max-width: 767px) {
           .console-line {
-            font-size: min(7.5vw, 4.2vh, 22px);
-            min-height: 3em;
+            font-size: min(5.4vw, 6vh, 22px);
+            min-height: 3.3em;
+          }
+        }
+        /* Móvil horizontal: una línea por renglón y letra grande */
+        @media (orientation: landscape) and (max-height: 500px) {
+          .console-line {
+            font-size: min(2.95vw, 7vh, 34px);
+            min-height: 1.6em;
           }
         }
         /* Refuerzo global: nada se sale de pantalla en ningún eje */

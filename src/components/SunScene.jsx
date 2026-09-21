@@ -108,7 +108,8 @@ function makeDriveCurve(amount = 1.6) {
 // ---------------------------------------------------------------------------
 // MÚSICA: "Viento.mp3" con sonido de RADIO AM DE LOS 80s (tabla del señor)
 // - Ecualizador de 10 bandas: campana en 1-2 kHz, sin graves ni agudos
-// - Mono real (una sola bocina) y saturación leve de preamplificador
+// - Mono real (una sola bocina), limpio y suave: la música de fondo de un
+//   juego de 64 bits. Nada raspado.
 // - Sin respaldos ni artefactos: solo la canción y el botón
 // ---------------------------------------------------------------------------
 // Ecualizador AM de 10 bandas. Ganancia de cada banda (dB):
@@ -167,11 +168,12 @@ function useAmbientMusic() {
       splitter.connect(mono, 0, 0);
       splitter.connect(mono, 1, 0);
 
-      // 2) Preamp + saturación leve (las radios distorsionaban un poco)
+      // 2) Preamp neutro + saturación MUY leve: apenas colorea, como el
+      //    DAC de una consola de 64 bits. Nada de raspado ni distorsión.
       const pre = ctx.createGain();
-      pre.gain.value = 1.15;
+      pre.gain.value = 1.0;
       const drive = ctx.createWaveShaper();
-      drive.curve = makeDriveCurve(1.8);
+      drive.curve = makeDriveCurve(1.1);
 
       // 3) Ecualizador AM: campana en 1-2 kHz (voz de bocina), sin graves
       const eq = makeAMEqualizer(ctx);
@@ -199,7 +201,7 @@ function useAmbientMusic() {
         src.connect(splitter); // mono de bocina única
         src.start();
         audio.started = true;
-        audio.master.gain.setTargetAtTime(0.85, ctx.currentTime, 0.9);
+        audio.master.gain.setTargetAtTime(0.42, ctx.currentTime, 0.9); // la mitad: suave, de fondo
         setOn(true);
       };
       startRef.current = start;
@@ -255,7 +257,7 @@ function useAmbientMusic() {
       setOn(false);
     } else {
       if (!a.started) { startRef.current(); }
-      else a.master.gain.setTargetAtTime(0.8, a.ctx.currentTime, 0.8);
+      else a.master.gain.setTargetAtTime(0.42, a.ctx.currentTime, 0.8);
       setOn(true);
     }
   };

@@ -11,11 +11,10 @@
 // - TAMAÑO MAPEADO POR DISPOSITIVO: el tamaño de letra se resuelve en CSS
 //   puro por rango de pantalla (clamp + media queries); la consola y su
 //   contenedor se acomodan solos en cualquier pantalla, sin JS de cálculo
-// - MÚSICA: la canción del señor (viento.mp3) con sonido de GRABADORA DE
-//   LOS 80s: agudos de cinta (sin HD), poco graves, saturación suave,
-//   compresor ligero, "shhh" de cinta de fondo y temblor de velocidad.
-//   Se escucha clara, con carácter vintage. Botón para callarla; si el
-//   mp3 no carga, respaldo ambient.
+// - MÚSICA: la canción del señor (viento.mp3) con sonido de RADIO AM DE
+//   LOS 80s (tabla EQ de 10 bandas: campana en 1-2 kHz sin graves/agudos,
+//   mono de bocina única y saturación leve). Botón para callarla; si el
+//   mp3 no carga, silencio.
 // ===========================================================================
 
 import {
@@ -94,48 +93,6 @@ const getPreset = () => {
   return { ...base, kind: d.kind, portrait, camZ: base.camZ + (portrait ? 5 : 0) };
 };
 
-// ---------------------------------------------------------------------------
-// MÚSICA ambiental sintetizada: 4 acordes suaves en loop (sin archivos)
-// ---------------------------------------------------------------------------
-function buildAmbientBuffer(ctx, seconds = 22) {
-  const sr = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, Math.floor(sr * seconds), sr);
-  const data = buffer.getChannelData(0);
-
-  // Pads: Cmaj7 -> Am7 -> Fmaj7 -> G (vueltas suaves, estilo space)
-  const chords = [
-    [261.63, 329.63, 392.0, 493.88],  // Cmaj7
-    [220.0, 261.63, 329.63, 392.0],   // Am7
-    [174.61, 261.63, 329.63, 440.0],  // Fmaj7
-    [196.0, 246.94, 392.0, 493.88],   // G
-  ];
-  const chordLen = seconds / chords.length;
-
-  for (let c = 0; c < chords.length; c++) {
-    const t0 = c * chordLen;
-    for (let n = 0; n < chords[c].length; n++) {
-      const f = chords[c][n];
-      const amp = 0.04 / chords[c].length;
-      for (let i = 0; i < data.length; i++) {
-        const t = i / sr;
-        const local = t - t0;
-        if (local < 0 || local > chordLen) continue;
-        let env = 1;
-        if (local < 1.4) env = local / 1.4;          // ataque lento
-        const rem = chordLen - local;
-        if (rem < 2) env = Math.min(env, rem / 2);   // fuga suave (crossfade)
-        data[i] +=
-          amp *
-          env *
-          (Math.sin(2 * Math.PI * f * local) +
-            0.35 * Math.sin(4 * Math.PI * f * local) +
-            0.18 * Math.sin(6 * Math.PI * f * local));
-      }
-    }
-  }
-  return buffer;
-}
-
 // Curva de saturación "cinta de casete": calidez analógica MUY suave para
 // no romper la voz ni los instrumentos (nada de chiptune ni de garabato)
 function makeDriveCurve(amount = 1.6) {
@@ -149,11 +106,48 @@ function makeDriveCurve(amount = 1.6) {
 }
 
 // ---------------------------------------------------------------------------
-// MÚSICA con sonido de "PC vieja": la canción del señor pasa por una cadena
-// de filtros (lowpass recorta el HD, highpass quita graves de bocina chica,
-// waveshaper da carácter, compresor empareja el volumen). Si el archivo no
-// carga, cae al pad sintetizado de respaldo: nunca queda en silencio.
+// MÚSICA: "Viento.mp3" con sonido de RADIO AM DE LOS 80s (tabla del señor)
+// - Ecualizador de 10 bandas: campana en 1-2 kHz, sin graves ni agudos
+// - Mono real (una sola bocina) y saturación leve de preamplificador
+// - Sin respaldos ni artefactos: solo la canción y el botón
 // ---------------------------------------------------------------------------
+// Ecualizador AM de 10 bandas. Ganancia de cada banda (dB):
+// 32:-12 | 64:-12 | 125:-9 | 250:-3 | 500:+3 | 1k:+6 | 2k:+7 | 4k:+2 | 8k:-6 | 16k:-12
+// El highpass de 110 Hz se traga las tres bandas graves (32/64/125 no
+// existen en una radio chica) y el lowpass refuerza el -12 dB de 16 kHz.
+function makeAMEqualizer(ctx) {
+  const chain = [];
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 110;
+  hp.Q.value = 0.7;
+  chain.push(hp);
+
+  const bands = [
+    { f: 250, g: -3 },
+    { f: 500, g: 3 },
+    { f: 1000, g: 6 },
+    { f: 2000, g: 7 },
+    { f: 4000, g: 2 },
+    { f: 8000, g: -6 },
+    { f: 16000, g: -12 },
+  ];
+  bands.forEach((b) => {
+    const f = ctx.createBiquadFilter();
+    f.type = 'peaking';
+    f.frequency.value = b.f;
+    f.Q.value = 1.0;
+    f.gain.value = b.g;
+    chain.push(f);
+  });
+
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 12000;
+  chain.push(lp);
+  return chain;
+}
+
 function useAmbientMusic() {
   const [on, setOn] = useState(false);
   const audioRef = useRef(null);
@@ -166,68 +160,35 @@ function useAmbientMusic() {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
 
-      // --- Cadena "grabadora vieja de los 80s" ---
-      // La canción se escucha CLARA pero con carácter de cinta de casete:
-      // agudos redondeados (no HD), pocos graves, un "shhh" de fondo y un
-      // temblor milimétrico de velocidad. Nada de sonido ahogado.
+      // === Configuración RADIO AM 80s (tabla del señor, 10 bandas) ===
+      // 1) MONO real: una sola bocina, como radio portátil de la época
+      const splitter = ctx.createChannelSplitter(2);
+      const mono = ctx.createChannelMerger(1);
+      splitter.connect(mono, 0, 0);
+      splitter.connect(mono, 1, 0);
+
+      // 2) Preamp + saturación leve (las radios distorsionaban un poco)
       const pre = ctx.createGain();
-      pre.gain.value = 0.9;
-
+      pre.gain.value = 1.15;
       const drive = ctx.createWaveShaper();
-      drive.curve = makeDriveCurve(1.6); // saturación suave, calidez analógica
+      drive.curve = makeDriveCurve(1.8);
 
-      const lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = 6800; // agudos de cinta: nada de HD cristalino
-      lowpass.Q.value = 0.3;
-
-      const highpass = ctx.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.value = 85; // un casete no baja de ahí
-
-      const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -18;
-      comp.knee.value = 16;
-      comp.ratio.value = 2.5; // compresión ligera: no aplasta la canción
-      comp.attack.value = 0.008;
-      comp.release.value = 0.25;
+      // 3) Ecualizador AM: campana en 1-2 kHz (voz de bocina), sin graves
+      const eq = makeAMEqualizer(ctx);
+      eq.forEach((node, i) => {
+        if (i < eq.length - 1) node.connect(eq[i + 1]);
+      });
 
       const master = ctx.createGain();
       master.gain.value = 0; // arranca en silencio, sube flotando
 
+      mono.connect(pre);
       pre.connect(drive);
-      drive.connect(lowpass);
-      lowpass.connect(highpass);
-      highpass.connect(comp);
-      comp.connect(master);
+      drive.connect(eq[0]);
+      eq[eq.length - 1].connect(master);
       master.connect(ctx.destination);
 
-      // "Shhh" de cinta: ruido de grabadora muy bajito (el sello de los 80s)
-      const hissBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-      const hData = hissBuf.getChannelData(0);
-      for (let i = 0; i < hData.length; i++) hData[i] = Math.random() * 2 - 1;
-      const hissSrc = ctx.createBufferSource();
-      hissSrc.buffer = hissBuf;
-      hissSrc.loop = true;
-      const hissFilter = ctx.createBiquadFilter();
-      hissFilter.type = 'lowpass';
-      hissFilter.frequency.value = 6000;
-      const hissGain = ctx.createGain();
-      hissGain.gain.value = 0.016;
-      hissSrc.connect(hissFilter);
-      hissFilter.connect(hissGain);
-      hissGain.connect(master);
-      hissSrc.start();
-
-      // "Wow" de casete: la velocidad tiembla una pizca, como cinta real
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = 0.6;
-      const lfoGain = ctx.createGain();
-      lfoGain.gain.value = 0.002; // ±0.2% de velocidad: imperceptible pero real
-      lfo.connect(lfoGain);
-      lfo.start();
-
-      const audio = { ctx, master, buffer: null, started: false, lfoGain };
+      const audio = { ctx, master, buffer: null, started: false };
       audioRef.current = audio;
 
       const start = () => {
@@ -235,12 +196,10 @@ function useAmbientMusic() {
         const src = ctx.createBufferSource();
         src.buffer = audio.buffer;
         src.loop = true;
-        src.connect(pre);
-        // El temblor de cinta se engancha a la velocidad de reproducción
-        audio.lfoGain.connect(src.playbackRate);
+        src.connect(splitter); // mono de bocina única
         src.start();
         audio.started = true;
-        audio.master.gain.setTargetAtTime(0.8, ctx.currentTime, 1.4); // clara, de fondo
+        audio.master.gain.setTargetAtTime(0.85, ctx.currentTime, 0.9);
         setOn(true);
       };
       startRef.current = start;
@@ -258,7 +217,8 @@ function useAmbientMusic() {
         }, 400);
       };
 
-      // Carga la canción del señor; si falla, respaldo: pad sintetizado
+      // Carga la canción del señor (viento.mp3). Sin respaldos: si el
+      // archivo no carga, hay silencio y el botón no hace nada.
       fetch('/viento.mp3')
         .then((r) => {
           if (!r.ok) throw new Error('no mp3');
@@ -270,11 +230,7 @@ function useAmbientMusic() {
           audio.buffer = buffer;
           tryAutoplay();
         })
-        .catch(() => {
-          if (cancelled) return;
-          audio.buffer = buildAmbientBuffer(ctx, 22); // respaldo nunca silencio
-          tryAutoplay();
-        });
+        .catch(() => {});
 
       return () => {
         cancelled = true;

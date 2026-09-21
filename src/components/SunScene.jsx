@@ -8,8 +8,9 @@
 //   como una página web de hace años; luego la consola BAJA poco a poco
 // - Texto FIJO: cada línea tiene su slot reservado; escribir no mueve nada
 // - RESPONSIVE: móvil / tablet / PC, retrato o paisaje, pantalla completa
-// - TAMAÑO EXACTO: la letra se calcula para que la línea más larga quepa
-//   siempre y crezca lo máximo posible en cada dispositivo
+// - TAMAÑO MAPEADO POR DISPOSITIVO: el tamaño de letra se resuelve en CSS
+//   puro por rango de pantalla (clamp + media queries); la consola y su
+//   contenedor se acomodan solos en cualquier pantalla, sin JS de cálculo
 // - MÚSICA ambiental sintetizada (Web Audio, sin derechos) + botón para
 //   callarla; volumen muy bajo, apenas se nota
 // ===========================================================================
@@ -67,7 +68,8 @@ const TARGET_FPS = 14;     // nada fluido: ~14 cuadros por segundo
 
 // ---------------------------------------------------------------------------
 // RESPONSIVE: perfiles por dispositivo (móvil / tablet / PC) y orientación
-//   maxFont es el tope de tamaño de letra de la consola en cada dispositivo
+//   Los tamaños de LETRA no viven aquí: se resuelven en CSS (clase
+//   .console-line con clamp + media queries, ver <style> del componente)
 // ---------------------------------------------------------------------------
 const detectDevice = (w = window.innerWidth) => {
   if (w < 768) return { kind: 'mobile' };
@@ -76,9 +78,9 @@ const detectDevice = (w = window.innerWidth) => {
 };
 
 const DEVICE_PRESETS = {
-  mobile:  { renderScale: 0.35, stars: 800,  bright: 140, fov: 65, camY: 9,  camZ: 40, maxFont: 15 },
-  tablet:  { renderScale: 0.40, stars: 1100, bright: 200, fov: 62, camY: 8,  camZ: 37, maxFont: 26 },
-  desktop: { renderScale: 0.45, stars: 1600, bright: 260, fov: 60, camY: 7,  camZ: 34, maxFont: 34 },
+  mobile:  { renderScale: 0.35, stars: 800,  bright: 140, fov: 65, camY: 9,  camZ: 40 },
+  tablet:  { renderScale: 0.40, stars: 1100, bright: 200, fov: 62, camY: 8,  camZ: 37 },
+  desktop: { renderScale: 0.45, stars: 1600, bright: 260, fov: 60, camY: 7,  camZ: 34 },
 };
 
 const getPreset = () => {
@@ -88,9 +90,6 @@ const getPreset = () => {
   // En retrato (móvil vertical) abrimos el ángulo y alejamos la cámara
   return { ...base, kind: d.kind, portrait, camZ: base.camZ + (portrait ? 5 : 0) };
 };
-
-// Ancho (en em) de la línea más larga del mensaje, letra por letra de Courier
-const LINE_EM = 29.8;
 
 // ---------------------------------------------------------------------------
 // MÚSICA ambiental sintetizada: 4 acordes suaves en loop (sin archivos)
@@ -349,21 +348,7 @@ export default function SunScene() {
   const [slidePct, setSlidePct] = useState(0);
   const [oculto, setOculto] = useState(false);
 
-  // Ancho del viewport para calcular el tamaño de letra EXACTO (sin wrap)
-  const [viewW, setViewW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1024));
-  useEffect(() => {
-    const onWinResize = () => setViewW(window.innerWidth);
-    window.addEventListener('resize', onWinResize);
-    return () => window.removeEventListener('resize', onWinResize);
-  }, []);
-
   const { on: musicaOn, toggle: toggleMusica } = useAmbientMusic();
-
-  // --- Tamaño de la consola: la línea más larga cabe SIEMPRE y la letra
-  //     crece hasta el tope del dispositivo. Nada se envuelve ni se mueve. ---
-  const uiPreset = DEVICE_PRESETS[detectDevice(viewW).kind];
-  const contW = Math.min(viewW * 0.92, 1100);
-  const fontSize = Math.min(contW / LINE_EM, uiPreset.maxFont);
 
   // --- Escena Three.js ---
   useEffect(() => {
@@ -731,7 +716,9 @@ export default function SunScene() {
   }, [bajando, oculto]);
 
   return (
-    <div className="fixed inset-0 z-0 bg-black overflow-hidden">
+    // #root mide calc(var(--vh) * 100), corregido por el script del index.html:
+    // en móvil la barra del navegador ya no encoge la pantalla
+    <div className="absolute inset-0 z-0 bg-black overflow-hidden">
       {/* Universo (canvas pixelado + scanlines + viñeta) */}
       <div ref={mountRef} className="absolute inset-0 z-0" />
 
@@ -766,39 +753,54 @@ export default function SunScene() {
           50%, 100% { opacity: 0; }
         }
         .crt-cursor { animation: crt-cursor 1s steps(1) infinite; }
+
+        /* ===== TAMAÑO DE LA CONSOLA: MAPEADO POR DISPOSITIVO (CSS puro) =====
+           El señor pidió "mapear el tamaño del dispositivo y de acuerdo a
+           eso acomodarlo" + corregir el alto real en móvil (--vh).
+           - Móvil (<768): letra pequeña-media; cada línea reserva 3em para
+             tolerar un enredo si entra, sin mover el bloque (texto fijo).
+           - Tablet (768-1023): letra media, sin enredo.
+           - PC (>=1024): consola más ancha y letra GRANDE (hasta 38px).  */
+        .console-box { width: 92vw; margin: 0 auto; }
+        .console-line {
+          font-family: 'Courier New', Courier, Consolas, monospace;
+          line-height: 1.5;
+          white-space: pre;
+          color: #66ff66;
+          text-shadow: 0 0 10px rgba(102, 255, 102, 0.45);
+          letter-spacing: 0.02em;
+        }
+        @media (max-width: 767px) {
+          .console-line { font-size: clamp(13px, 3.2vw, 15px); min-height: 3em; }
+        }
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .console-line { font-size: clamp(18px, 2.4vw, 24px); }
+        }
+        @media (min-width: 1024px) {
+          .console-box { width: min(94vw, 1400px); }
+          .console-line { font-size: clamp(26px, 2.1vw, 38px); }
+        }
       `}</style>
       <div className="absolute inset-0 z-10 pointer-events-none crt-flicker" />
 
       {/*
         Consola estilo BIOS vieja. Cada línea OCUPA SU SLOT desde el primer
         cuadro: el bloque nunca cambia de altura y el texto NO se mueve.
-        La letra se calcula (contW / LINE_EM) para que la línea más larga
-        quepa SIEMPRE y crezca hasta el tope según el dispositivo.
+        El tamaño de letra lo decide CSS por rango de pantalla (clamp +
+        media queries, ver .console-line arriba): móvil, tablet y PC.
       */}
       <div
         className={`absolute inset-0 z-50 bg-black ${oculto ? 'hidden' : ''}`}
         style={{ transform: `translateY(${slidePct}%)` }}
       >
         <div className="flex items-center justify-center w-full h-full">
-          <div style={{ width: `${contW}px` }}>
+          <div className="console-box">
             {CONSOLE_LINES.map((l, i) => {
               const done = i < typedLines.length;
               const active = i === lineIndex;
               const content = done ? typedLines[i] : active ? currentLine : '';
               return (
-                <div
-                  key={i}
-                  className="select-none"
-                  style={{
-                    fontFamily: "'Courier New', Courier, Consolas, monospace",
-                    fontSize: `${fontSize}px`,
-                    lineHeight: 1.5,
-                    whiteSpace: 'pre',
-                    color: '#66ff66',
-                    textShadow: '0 0 10px rgba(102, 255, 102, 0.45)',
-                    letterSpacing: '0.02em',
-                  }}
-                >
+                <div key={i} className="console-line select-none">
                   {content}
                   {active && <span className="crt-cursor">▌</span>}
                 </div>

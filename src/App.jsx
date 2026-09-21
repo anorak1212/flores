@@ -1,9 +1,5 @@
-import SolarSystemWithFeatures from './components/SolarSystemWithFeatures';
+import SunScene from './components/SunScene';
 
 export default function App() {
-  return (
-    <div className="w-full h-screen bg-black overflow-hidden">
-      <SolarSystemWithFeatures />
-    </div>
-  );
+  return <SunScene />;
 }

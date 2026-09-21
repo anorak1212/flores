@@ -117,7 +117,9 @@ export default function SunScene() {
   const [currentLine, setCurrentLine] = useState('');
   const [lineIndex, setLineIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
-  const [overlayDown, setOverlayDown] = useState(false);
+  const [bajando, setBajando] = useState(false);
+  const [slidePct, setSlidePct] = useState(0);
+  const [oculto, setOculto] = useState(false);
 
   // --- Escena Three.js ---
   useEffect(() => {
@@ -383,7 +385,7 @@ export default function SunScene() {
   // --- Efecto máquina de escribir de la consola ---
   useEffect(() => {
     if (lineIndex >= CONSOLE_LINES.length) {
-      const t = setTimeout(() => setOverlayDown(true), END_DELAY);
+      const t = setTimeout(() => setBajando(true), END_DELAY);
       return () => clearTimeout(t);
     }
     const line = CONSOLE_LINES[lineIndex];
@@ -402,6 +404,33 @@ export default function SunScene() {
     }, 300);
     return () => clearTimeout(t);
   }, [lineIndex, charIndex]);
+
+  // --- Bajada TRABADA de la consola: pasos con pausas, como BIOS vieja ---
+  useEffect(() => {
+    if (!bajando || oculto) return;
+    let pct = 0;
+    let cancelled = false;
+
+    const step = () => {
+      if (cancelled) return;
+      const r = Math.random();
+      // 30% de las veces se "traba" (avance mínimo), el resto salta
+      const advance = r < 0.3 ? 1 + Math.random() * 2 : 5 + Math.random() * 12;
+      pct = Math.min(100, pct + advance);
+      setSlidePct(pct);
+      if (pct >= 100) {
+        setOculto(true); // listo: se quita del todo y libera el puntero
+        return;
+      }
+      setTimeout(step, 110 + Math.random() * 310); // pausas irregulares
+    };
+
+    const t = setTimeout(step, 500); // "le cuesta arrancar"
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [bajando, oculto]);
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
@@ -437,26 +466,38 @@ export default function SunScene() {
       `}</style>
       <div className="absolute inset-0 z-10 pointer-events-none crt-flicker" />
 
-      {/* Consola DOS: escribe el mensaje y BAJA al terminar */}
+      {/* Consola: estilo BIOS vieja. BAJA trabada en pasos al terminar */}
       <div
-        className={`absolute inset-0 z-50 bg-black transition-transform ease-in-out ${overlayDown ? 'translate-y-full' : 'translate-y-0'}`}
-        style={{ transitionDuration: '1200ms' }}
+        className={`absolute inset-0 z-50 bg-black ${oculto ? 'hidden' : ''}`}
+        style={{ transform: `translateY(${slidePct}%)` }}
       >
         <div className="flex items-center justify-center w-full h-full">
-          <div className="w-[min(92vw,760px)] mx-auto px-2">
+          <div className="w-[min(92vw,720px)] mx-auto px-2">
+            {/*
+              Todas las filas se reservan desde el primer cuadro (vacías) para
+              que el bloque no crezca y el texto quede SIEMPRE centrado, fijo.
+            */}
             <pre
-              className="text-[#ffb000] text-sm sm:text-base md:text-lg leading-loose whitespace-pre-wrap select-none"
+              className="text-[#66ff66] text-sm sm:text-base md:text-lg leading-loose whitespace-pre-wrap select-none"
               style={{
-                fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
-                textShadow: '0 0 10px rgba(255, 176, 0, 0.5)',
-                letterSpacing: '0.02em',
+                fontFamily: "'Terminal', 'Fixedsys', 'Courier New', monospace",
+                textShadow: '0 0 10px rgba(102, 255, 102, 0.45)',
+                letterSpacing: '0.03em',
               }}
             >
-              {typedLines.map((l, i) => (
-                <span key={i}>{l}{'\n'}</span>
-              ))}
-              <span>{currentLine}</span>
-              <span className="animate-pulse">▌</span>
+              {CONSOLE_LINES.map((l, i) => {
+                const content =
+                  i < typedLines.length ? typedLines[i] : i === typedLines.length ? currentLine : '';
+                return (
+                  <span key={i}>
+                    {content}
+                    {i === typedLines.length && (
+                      <span className="animate-pulse">▌</span>
+                    )}
+                    {'\n'}
+                  </span>
+                );
+              })}
             </pre>
           </div>
         </div>
